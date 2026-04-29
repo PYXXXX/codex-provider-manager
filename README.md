@@ -98,7 +98,7 @@ Main areas:
 - Session management
 - Environment checks
 
-The session migration flow loads sessions first, lets you select the exact sessions to migrate, then asks for the target provider and confirmation.
+The session migration flow loads sessions first, lets you select the exact sessions to migrate, then asks for the target provider and confirmation. There is also a "migrate to current provider" action that preselects sessions whose first-line provider differs from the active profile's provider, while still letting you uncheck any session before writing.
 
 ## Provider Commands
 

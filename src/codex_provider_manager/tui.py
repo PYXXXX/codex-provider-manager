@@ -355,6 +355,90 @@ def _models_menu(config_path: Path) -> None:
             _pause()
 
 
+def _current_profile_provider(doc) -> str | None:
+    current = str(doc.get("profile", ""))
+    profile = list_profiles(doc).get(current)
+    if not profile:
+        return None
+    provider = profile.get("model_provider")
+    return str(provider) if provider else None
+
+
+def _session_choice_title(info) -> str:
+    return tr(
+        f"{info.title or info.path.stem} | 当前 {info.model_provider} | 工作区 {info.cwd or '<无>'} | {info.ts or ''}",
+        f"{info.title or info.path.stem} | current {info.model_provider} | workspace {info.cwd or '<none>'} | {info.ts or ''}",
+    )
+
+
+def _paths_not_on_provider(infos, provider_id: str) -> set[Path]:
+    return {info.path for info in infos if not info.warning and info.model_provider and info.model_provider != provider_id}
+
+
+def _run_session_migration_flow(
+    sessions_dir: Path,
+    valid_infos,
+    target_providers: list[str],
+    *,
+    preset_target: str | None = None,
+    preselected_paths: set[Path] | None = None,
+) -> None:
+    back = tr("返回", "Back")
+    preselected_paths = preselected_paths or set()
+    session_choices = [
+        Choice(
+            title=_session_choice_title(info),
+            value=info.path,
+            checked=info.path in preselected_paths,
+        )
+        for info in valid_infos
+    ]
+    session_choices.append(Choice(title=back, value="__back__"))
+    selected_paths = set(questionary.checkbox(tr("选择要迁移的 Session", "Select sessions to migrate"), choices=session_choices).ask() or [])
+    if "__back__" in selected_paths:
+        return
+    if not selected_paths:
+        console.print(tr("[yellow]没有选择任何 Session。[/yellow]", "[yellow]No sessions selected.[/yellow]"))
+        _pause()
+        return
+    target = preset_target
+    if not target:
+        target = _normalize_choice(questionary.select(tr("目标 Provider", "Target provider"), choices=[*target_providers, back]).ask())
+    if not target:
+        return
+    selected_infos = [info for info in valid_infos if info.path in selected_paths]
+    preview = Table(title=tr("迁移预览", "Migration Preview"))
+    preview.add_column(tr("序号", "No."))
+    preview.add_column(tr("从", "From"))
+    preview.add_column(tr("到", "To"))
+    preview.add_column(tr("标题", "Title"))
+    preview.add_column(tr("工作区", "Workspace"))
+    preview.add_column(tr("模型", "Model"))
+    preview.add_column(tr("路径", "Path"))
+    for index, info in enumerate(selected_infos, start=1):
+        preview.add_row(str(index), info.model_provider or "", target, info.title or "", info.cwd or "", info.model or "", str(info.path))
+    console.print(preview)
+    dry = tr("仅预览（不写入）", "Dry run (no write)")
+    formal = tr("正式迁移", "Migrate")
+    mode = questionary.select(tr("执行方式", "Action"), choices=[dry, formal, back]).ask()
+    if mode in (None, back):
+        return
+    dry_run = mode == dry
+    backup_sessions = False
+    if not dry_run:
+        backup_sessions = _confirm(tr("是否创建完整 sessions 目录备份？", "Create full sessions directory backup?"), False)
+    if dry_run or _confirm(tr(f"确认修改 {len(selected_paths)} 个选中的 Session 文件？", f"Modify {len(selected_paths)} selected session files?"), False):
+        result = migrate_selected_session_files(sessions_dir, selected_paths, target, dry_run=dry_run, backup=backup_sessions)
+        console.print(tr(f"{'将会修改' if dry_run else '已修改'} {result.changed} 个；跳过 {result.skipped} 个。", f"{'Would modify' if dry_run else 'Modified'} {result.changed}; skipped {result.skipped}."))
+        if result.undo_path:
+            console.print(tr(f"Undo 文件：{result.undo_path}", f"Undo file: {result.undo_path}"))
+        if result.backup_path:
+            console.print(tr(f"备份目录：{result.backup_path}", f"Backup directory: {result.backup_path}"))
+        for warning in result.warnings:
+            console.print(tr(f"[yellow]警告：[/yellow] {warning}", f"[yellow]Warning:[/yellow] {warning}"))
+        _pause()
+
+
 def _sessions_menu(config_path: Path, sessions_dir: Path) -> None:
     while True:
         doc = load_config(config_path)
@@ -365,9 +449,10 @@ def _sessions_menu(config_path: Path, sessions_dir: Path) -> None:
         console.print(_session_summary_table(sessions_dir))
         view = tr("查看 Session 文件", "View session files")
         migrate = tr("迁移选中的 Session", "Migrate selected sessions")
+        migrate_current = tr("迁移到当前 Provider", "Migrate to current provider")
         rollback = tr("从 undo JSON 回滚", "Rollback from undo JSON")
         back = tr("返回", "Back")
-        action = questionary.select(tr("Session 管理", "Session Management"), choices=[view, migrate, rollback, back]).ask()
+        action = questionary.select(tr("Session 管理", "Session Management"), choices=[view, migrate, migrate_current, rollback, back]).ask()
         if action in (None, back):
             return
         if action == view:
@@ -379,58 +464,21 @@ def _sessions_menu(config_path: Path, sessions_dir: Path) -> None:
                 console.print(tr("[yellow]没有可迁移的 Session。[/yellow]", "[yellow]No migratable sessions found.[/yellow]"))
                 _pause()
                 continue
-            session_choices = [
-                Choice(
-                    title=tr(
-                        f"{info.title or info.path.stem} | 当前 {info.model_provider} | 工作区 {info.cwd or '<无>'} | {info.ts or ''}",
-                        f"{info.title or info.path.stem} | current {info.model_provider} | workspace {info.cwd or '<none>'} | {info.ts or ''}",
-                    ),
-                    value=info.path,
-                )
-                for info in valid_infos
-            ]
-            session_choices.append(Choice(title=back, value="__back__"))
-            selected_paths = set(questionary.checkbox(tr("选择要迁移的 Session", "Select sessions to migrate"), choices=session_choices).ask() or [])
-            if "__back__" in selected_paths:
-                continue
-            if not selected_paths:
-                console.print(tr("[yellow]没有选择任何 Session。[/yellow]", "[yellow]No sessions selected.[/yellow]"))
+            _run_session_migration_flow(sessions_dir, valid_infos, target_providers)
+        elif action == migrate_current:
+            current_provider = _current_profile_provider(doc)
+            if not current_provider:
+                console.print(tr("[yellow]当前 Profile 没有对应的 Provider。[/yellow]", "[yellow]Current profile has no provider.[/yellow]"))
                 _pause()
                 continue
-            target = _normalize_choice(questionary.select(tr("目标 Provider", "Target provider"), choices=[*target_providers, back]).ask())
-            if not target:
-                continue
-            selected_infos = [info for info in valid_infos if info.path in selected_paths]
-            preview = Table(title=tr("迁移预览", "Migration Preview"))
-            preview.add_column(tr("序号", "No."))
-            preview.add_column(tr("从", "From"))
-            preview.add_column(tr("到", "To"))
-            preview.add_column(tr("标题", "Title"))
-            preview.add_column(tr("工作区", "Workspace"))
-            preview.add_column(tr("模型", "Model"))
-            preview.add_column(tr("路径", "Path"))
-            for index, info in enumerate(selected_infos, start=1):
-                preview.add_row(str(index), info.model_provider or "", target, info.title or "", info.cwd or "", info.model or "", str(info.path))
-            console.print(preview)
-            dry = tr("仅预览（不写入）", "Dry run (no write)")
-            formal = tr("正式迁移", "Migrate")
-            mode = questionary.select(tr("执行方式", "Action"), choices=[dry, formal, back]).ask()
-            if mode in (None, back):
-                continue
-            dry_run = mode == dry
-            backup_sessions = False
-            if not dry_run:
-                backup_sessions = _confirm(tr("是否创建完整 sessions 目录备份？", "Create full sessions directory backup?"), False)
-            if dry_run or _confirm(tr(f"确认修改 {len(selected_paths)} 个选中的 Session 文件？", f"Modify {len(selected_paths)} selected session files?"), False):
-                result = migrate_selected_session_files(sessions_dir, selected_paths, target, dry_run=dry_run, backup=backup_sessions)
-                console.print(tr(f"{'将会修改' if dry_run else '已修改'} {result.changed} 个；跳过 {result.skipped} 个。", f"{'Would modify' if dry_run else 'Modified'} {result.changed}; skipped {result.skipped}."))
-                if result.undo_path:
-                    console.print(tr(f"Undo 文件：{result.undo_path}", f"Undo file: {result.undo_path}"))
-                if result.backup_path:
-                    console.print(tr(f"备份目录：{result.backup_path}", f"Backup directory: {result.backup_path}"))
-                for warning in result.warnings:
-                    console.print(tr(f"[yellow]警告：[/yellow] {warning}", f"[yellow]Warning:[/yellow] {warning}"))
+            valid_infos = [info for info in infos if not info.warning and info.model_provider]
+            preselected = _paths_not_on_provider(valid_infos, current_provider)
+            if not preselected:
+                console.print(tr(f"[green]所有 Session 已经属于当前 Provider：{current_provider}。[/green]", f"[green]All sessions already belong to current provider: {current_provider}.[/green]"))
                 _pause()
+                continue
+            console.print(tr(f"当前 Provider：{current_provider}。已自动勾选不属于它的 Session。", f"Current provider: {current_provider}. Sessions not using it are preselected."))
+            _run_session_migration_flow(sessions_dir, valid_infos, target_providers, preset_target=current_provider, preselected_paths=preselected)
         elif action == rollback:
             undo = _text(tr("Undo JSON 路径", "Undo JSON path"))
             if undo:
