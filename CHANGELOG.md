@@ -1,0 +1,10 @@
+# Changelog
+
+## 0.1.0
+
+- Add provider and profile management for Codex user config.
+- Add OpenAI-compatible `/v1/models` import into Codex profiles.
+- Add TUI with automatic Chinese/English language selection.
+- Add session provider scan, selected-session migration, undo JSON, and rollback.
+- Keep session `cwd`/workspace, title, id, timestamp, model, and message history unchanged during migration.
+- Make config and session directory backups opt-in.

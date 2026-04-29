@@ -1,0 +1,17 @@
+.venv/
+.venv-run/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local Codex test overrides and generated safety artifacts
+.codex/
+*.backup-*
+session-migration-undo-*.json
