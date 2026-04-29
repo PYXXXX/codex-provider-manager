@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "codex-provider-manager"
 version = "0.1.0"
-description = "Cross-platform CLI for managing Codex providers, profiles, models, and session provider visibility."
+description = "Cross-platform CLI/TUI for managing Codex providers, profiles, models, and session provider visibility."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -42,6 +42,7 @@ cpm = "codex_provider_manager.cli:main"
 [project.urls]
 Homepage = "https://github.com/PYXXXX/codex-provider-manager"
 Issues = "https://github.com/PYXXXX/codex-provider-manager/issues"
+Changelog = "https://github.com/PYXXXX/codex-provider-manager/blob/main/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

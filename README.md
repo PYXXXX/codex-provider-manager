@@ -5,17 +5,15 @@
 
 [中文说明](README.zh-CN.md)
 
-`codex-provider-manager` is a cross-platform CLI/TUI for managing the Codex user configuration used by OpenAI Codex CLI, Codex App, and IDE extensions.
+`codex-provider-manager` is a cross-platform CLI/TUI assistant for managing the Codex user configuration used by OpenAI Codex CLI, Codex App, and IDE extensions.
 
-It helps manage:
+It focuses on the practical parts that Codex users need when switching between the built-in OpenAI provider and OpenAI-compatible third-party providers:
 
-- Codex model providers
-- Profiles and the active profile
-- OpenAI-compatible model lists from `/v1/models`
-- Environment variable health checks
-- Local session provider visibility and safe session migration
-
-The tool is designed for Windows and macOS/Linux and uses `pathlib` for path handling.
+- provider definitions in `~/.codex/config.toml`
+- profiles and the active profile
+- model profile import from `/v1/models`
+- API-key environment variable checks
+- local session provider visibility and safe session migration
 
 This is an independent community tool and is not affiliated with OpenAI.
 
@@ -25,9 +23,9 @@ This is an independent community tool and is not affiliated with OpenAI.
 - API keys are never printed.
 - Codex auth files are not read or modified.
 - Unknown TOML sections are preserved.
-- Config backups are opt-in.
-- Full session directory backups are opt-in.
-- Session migration edits only the first JSONL line's provider field.
+- `config.toml` backups are opt-in.
+- Full `sessions` directory backups are opt-in.
+- Session migration edits only the provider field in the first JSONL line.
 - Session `cwd`/workspace, title, id, timestamp, model, and later messages are preserved.
 
 ## What It Edits
@@ -44,7 +42,7 @@ Codex sessions:
 ~/.codex/sessions/**/*.jsonl
 ```
 
-Current Codex session files usually store provider ownership at:
+Current Codex session files usually store provider ownership in the first line under:
 
 ```json
 {"payload":{"model_provider":"codexlb"}}
@@ -92,7 +90,7 @@ cpm tui
 
 The TUI automatically uses Chinese when the system locale starts with `zh`; otherwise it uses English.
 
-The TUI includes:
+Main areas:
 
 - Provider management
 - Profile management
@@ -100,137 +98,79 @@ The TUI includes:
 - Session management
 - Environment checks
 
-Session migration in the TUI works by loading the session list first. You select the exact sessions to migrate, choose the target provider, review the preview, then choose dry-run or formal migration.
+The session migration flow loads sessions first, lets you select the exact sessions to migrate, then asks for the target provider and confirmation.
 
 ## Provider Commands
 
-List providers:
-
 ```bash
-cpm providers
-```
-
-Add a provider:
-
-```bash
-cpm add-provider \
-  --id codexlb \
-  --name codex-lb \
-  --base-url https://aiapi.bilirec.com/v1 \
-  --env-key CODEX_LB_API_KEY
-```
-
-Create a config backup explicitly:
-
-```bash
-cpm add-provider \
-  --id codexlb \
-  --name codex-lb \
-  --base-url https://aiapi.bilirec.com/v1 \
-  --env-key CODEX_LB_API_KEY \
-  --backup
-```
-
-Edit or remove:
-
-```bash
-cpm edit-provider codexlb --base-url https://aiapi.bilirec.com/v1
+cpm list-providers
+cpm add-provider --id codexlb --name codex-lb --base-url https://aiapi.bilirec.com/v1 --env-key CODEX_LB_API_KEY
+cpm edit-provider codexlb
 cpm remove-provider codexlb
 ```
 
-Built-in provider IDs such as `openai`, `ollama`, and `lmstudio` cannot be overwritten or removed.
+The built-in official provider is always shown as `openai`, but the tool does not write `[model_providers.openai]` because Codex owns that provider.
 
 ## Model Import
 
-Fetch models:
+For third-party OpenAI-compatible providers, model import reads:
 
-```bash
-cpm models codexlb
+```text
+GET {base_url}/models
+Authorization: Bearer <API key from env_key>
 ```
 
-Import selected models as profiles:
+Then it creates Codex profiles such as:
 
-```bash
-cpm import-models codexlb --models gpt-5.4,gpt-5.5
+```toml
+[profiles.codexlb_gpt_5_4]
+model = "gpt-5.4"
+model_provider = "codexlb"
+model_reasoning_effort = "medium"
 ```
 
-How model import works:
+Example:
 
-1. Read the provider's `base_url` and `env_key` from `config.toml`.
-2. Read the real API key from the environment variable named by `env_key`.
-3. Request `GET {base_url}/models` with `Authorization: Bearer <API_KEY>`.
-4. Parse OpenAI-compatible responses such as `{"object":"list","data":[{"id":"gpt-5.4"}]}`.
-5. Write selected model IDs as Codex profiles, such as `codexlb_gpt_5_4`.
+```bash
+set CODEX_LB_API_KEY=...
+cpm fetch-models codexlb
+cpm import-models codexlb
+```
 
-The API key is not written to `config.toml` and is not printed.
+For official OpenAI/ChatGPT auth, create profiles with `model_provider = "openai"`. Whether a model is actually usable depends on your Codex auth subscription and permissions.
 
 ## Profile Commands
 
 ```bash
-cpm profiles
-cpm add-profile --provider codexlb --model gpt-5.4
-cpm switch codexlb_gpt_5_4
+cpm list-profiles
+cpm add-profile --provider openai --model gpt-5.5 --name official_gpt_5_5
+cpm switch-profile official_gpt_5_5
 ```
 
-Official OpenAI profiles use Codex's built-in `openai` provider and depend on `codex login`:
-
-```toml
-[profiles.official_gpt_5_5]
-model = "gpt-5.5"
-model_provider = "openai"
-```
+`switch-profile` updates the root `profile = "..."` key and keeps it before TOML tables.
 
 ## Session Commands
 
-Scan sessions:
-
 ```bash
-cpm sessions
 cpm scan-sessions --verbose
+cpm migrate-sessions huaibao codexlb --dry-run
+cpm migrate-sessions huaibao,onetoken codexlb
+cpm rollback-sessions --undo ~/.codex/session-migration-undo-YYYYMMDD-HHMMSS.json
 ```
 
-Dry-run migration:
+Migration changes only the first-line provider field. It does not change the model, session id, timestamp, workspace/cwd, title, or later messages.
 
-```bash
-cpm migrate huaibao codexlb --dry-run
-```
-
-Formal migration:
-
-```bash
-cpm migrate huaibao codexlb -y
-```
-
-Full session directory backup is opt-in:
-
-```bash
-cpm migrate huaibao codexlb --backup -y
-```
-
-Rollback:
-
-```bash
-cpm rollback --undo ~/.codex/session-migration-undo-YYYYMMDD-HHMMSS.json
-```
-
-Formal migration always creates a lightweight undo JSON. It records only changed files and old/new providers.
+Formal migration writes a lightweight undo JSON. A full sessions backup is created only when you pass `--backup` or choose it in the TUI.
 
 ## Environment Commands
 
 ```bash
 cpm check-env
 cpm set-env --provider codexlb
-```
-
-`check-env` prints only existence and length. `set-env --persist` uses `setx` on Windows. On macOS/Linux it prints an `export` command instead of modifying shell startup files.
-
-## Official Auth Check
-
-```bash
 cpm check-official-auth
 ```
 
-This may run `codex /status` or `codex --version`. It does not read or modify Codex auth tokens.
+On Windows, persistent env setup uses `setx` when requested. On macOS/Linux, the tool prints an `export` command instead of editing shell startup files.
 
 ## Development
 
@@ -239,22 +179,22 @@ python -m pip install -e ".[dev]"
 pytest
 ```
 
-Windows script smoke test:
+The test suite covers TOML preservation, provider/profile writes, `/v1/models` import, session scanning, migration, rollback, and opt-in backups.
 
-```powershell
-.\scripts\run.ps1 doctor
-```
+## Known Limits
 
-macOS/Linux script smoke test:
-
-```bash
-./scripts/run.sh doctor
-```
-
-## Status
-
-This project is an early alpha. The CLI and menu-based TUI are intentionally conservative and safety-focused.
+- This tool manages Codex config and local session metadata; it does not modify Codex authentication state.
+- `/v1/models` import requires the provider to expose an OpenAI-compatible models endpoint.
+- The TUI is intentionally simple and terminal-native for reliability.
+- Official model availability is not guaranteed by profile creation; Codex auth decides access.
 
 ## Security
 
 Please see [SECURITY.md](SECURITY.md). Do not post API keys, auth tokens, cookies, or private session contents in public issues.
+
+## Roadmap
+
+- Richer TUI layout with search and filters.
+- Safer bulk editing previews for large session sets.
+- Optional packaged releases for Windows/macOS.
+- More provider-specific diagnostics without exposing secrets.
