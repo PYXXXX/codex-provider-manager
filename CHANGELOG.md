@@ -10,3 +10,4 @@
 - Make config and session directory backups opt-in.
 - Allow setting provider API keys from provider add/edit flows without writing secrets to `config.toml`.
 - Guide new provider setup through model selection, profile creation, and optional current-profile switching.
+- Generate provider API-key environment variable names automatically during provider creation.

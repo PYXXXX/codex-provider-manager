@@ -31,6 +31,13 @@ def validate_provider_id(provider_id: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_-]+", provider_id))
 
 
+def env_key_for_provider_id(provider_id: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9]+", "_", provider_id).strip("_").upper()
+    if not stem:
+        stem = "PROVIDER"
+    return f"{stem}_API_KEY"
+
+
 def profile_name_for(provider_id: str, model: str) -> str:
     raw = f"{provider_id}_{model}"
     return re.sub(r"[^A-Za-z0-9]+", "_", raw).strip("_").lower()

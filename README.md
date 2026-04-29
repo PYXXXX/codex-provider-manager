@@ -105,14 +105,14 @@ The session migration flow loads sessions first, lets you select the exact sessi
 
 ```bash
 cpm list-providers
-cpm add-provider --id codexlb --name codex-lb --base-url https://aiapi.bilirec.com/v1 --env-key CODEX_LB_API_KEY
-cpm add-provider --id codexlb --name codex-lb --base-url https://aiapi.bilirec.com/v1 --env-key CODEX_LB_API_KEY --prompt-api-key --persist-api-key
-cpm edit-provider codexlb
-cpm remove-provider codexlb
+cpm add-provider --id codex-lb --name codex-lb --base-url https://aiapi.bilirec.com/v1
+cpm add-provider --id codex-lb --name codex-lb --base-url https://aiapi.bilirec.com/v1 --prompt-api-key --persist-api-key
+cpm edit-provider codex-lb
+cpm remove-provider codex-lb
 ```
 
 The built-in official provider is always shown as `openai`, but the tool does not write `[model_providers.openai]` because Codex owns that provider.
-When adding a third-party provider in the TUI, the flow can also set the real API key, fetch `/v1/models`, create a profile for the selected model, and set it as the current profile. The key is written only to the environment, never to `config.toml`.
+When adding a third-party provider in the TUI, the flow automatically creates an env var name from the provider id, asks only for the real API key, fetches `/v1/models`, creates a profile for the selected model, and can set it as the current profile. The key is written only to the environment, never to `config.toml`.
 
 ## Model Import
 

@@ -17,6 +17,7 @@ from .i18n import tr
 from .models import add_profile, fetch_models, import_models, list_profiles
 from .providers import get_provider, list_providers, provider_to_dict, referencing_profiles, remove_provider, upsert_provider
 from .sessions import migrate_selected_session_files, rollback_sessions, scan_sessions, summarize_by_provider
+from .utils import env_key_for_provider_id
 
 
 console = Console()
@@ -259,7 +260,8 @@ def _providers_menu(config_path: Path) -> None:
             provider_id = _text("Provider ID")
             name = _text(tr("显示名称", "Display name"), provider_id or "")
             base_url = _text("Base URL")
-            env_key = _text(tr("环境变量名", "Environment variable name"))
+            env_key = env_key_for_provider_id(provider_id or "")
+            console.print(tr(f"API key 将保存到环境变量：{env_key}", f"API key will be stored in env var: {env_key}"))
             supports = _confirm(tr("是否支持 WebSocket？", "Supports WebSocket?"), False)
             if provider_id and name and base_url and env_key:
                 upsert_provider(doc, provider_id, name=name, base_url=base_url, env_key=env_key, supports_websockets=supports)

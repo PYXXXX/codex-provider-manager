@@ -17,7 +17,7 @@ from .models import add_profile, fetch_models, import_models, list_profiles
 from .providers import get_provider, list_providers, provider_to_dict, referencing_profiles, remove_provider, upsert_provider
 from .sessions import migrate_sessions, preview_migration, rollback_sessions, scan_sessions, summarize_by_provider
 from .tui import run_tui
-from .utils import OFFICIAL_MODELS, split_csv
+from .utils import OFFICIAL_MODELS, env_key_for_provider_id, split_csv
 
 console = Console()
 
@@ -127,14 +127,16 @@ def cmd_list_providers(args) -> int:
 
 def cmd_add_provider(args) -> int:
     config, _, doc = _load(args)
-    interactive = not all([args.id, args.name, args.base_url, args.env_key])
+    interactive = not all([args.id, args.name, args.base_url])
     provider_id = args.id or _ask("Provider id")
     exists = get_provider(doc, provider_id) is not None and provider_id != "openai"
     if exists and not (args.yes or _confirm(f"Provider {provider_id} exists. Update it?", False)):
         return 1
     name = args.name or _ask("Display name", provider_id)
     base_url = args.base_url or _ask("Base URL")
-    env_key = args.env_key or _ask("Environment variable name")
+    env_key = args.env_key or env_key_for_provider_id(provider_id)
+    if interactive:
+        console.print(f"API key env var: {env_key}")
     upsert_provider(doc, provider_id, name=name, base_url=base_url, env_key=env_key, supports_websockets=args.supports_websockets)
     profile_name = None
     should_prompt_key = args.prompt_api_key or args.api_key or (interactive and not args.dry_run and _confirm(f"Set API key for {env_key} now?", True))
@@ -404,7 +406,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id")
     p.add_argument("--name")
     p.add_argument("--base-url")
-    p.add_argument("--env-key")
+    p.add_argument("--env-key", help="Advanced override; defaults to PROVIDER_ID_API_KEY")
     p.add_argument("--supports-websockets", action="store_true")
     p.add_argument("--api-key", help="Set the provider API key into the environment; never written to config.toml")
     p.add_argument("--prompt-api-key", action="store_true", help="Prompt for the provider API key after saving")
@@ -418,7 +420,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("provider")
     p.add_argument("--name")
     p.add_argument("--base-url")
-    p.add_argument("--env-key")
+    p.add_argument("--env-key", help="Advanced override for the provider environment variable name")
     p.add_argument("--supports-websockets", action=argparse.BooleanOptionalAction, default=None)
     p.add_argument("--api-key", help="Set the provider API key into the environment; never written to config.toml")
     p.add_argument("--prompt-api-key", action="store_true", help="Prompt for the provider API key after saving")
