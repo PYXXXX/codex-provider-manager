@@ -1,5 +1,8 @@
 # codex-provider-manager
 
+[![CI](https://github.com/PYXXXX/codex-provider-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/PYXXXX/codex-provider-manager/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [English README](README.md)
 
 `codex-provider-manager` 是一个跨平台 CLI/TUI 工具，用来管理 OpenAI Codex CLI、Codex App 和 IDE Extension 共用的 Codex 用户配置。
@@ -13,6 +16,8 @@
 - 本地 session 的 provider 可见性和安全迁移
 
 工具面向 Windows 和 macOS/Linux，路径处理使用 `pathlib`。
+
+这是一个独立社区工具，不隶属于 OpenAI。
 
 ## 安全原则
 
@@ -249,3 +254,7 @@ macOS/Linux 脚本测试：
 ## 状态
 
 项目目前是早期 alpha。CLI 和菜单式 TUI 都以保守、安全、可回滚为优先。
+
+## 安全报告
+
+请查看 [SECURITY.md](SECURITY.md)。不要在公开 issue 中粘贴 API key、auth token、cookie 或私密 session 内容。
