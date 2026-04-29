@@ -111,7 +111,7 @@ cpm remove-provider codexlb
 ```
 
 内置官方 provider 会始终显示为 `openai`，但工具不会写入 `[model_providers.openai]`，因为这个 provider 由 Codex 自己负责。
-在 TUI 里新增或编辑第三方 Provider 时，可以在同一流程里设置真实 API key。真实 key 只会写入环境变量，不会写进 `config.toml`。
+在 TUI 里新增第三方 Provider 时，可以在同一流程里设置真实 API key、读取 `/v1/models`、为选中的模型创建 Profile，并将它设为当前使用的 Profile。真实 key 只会写入环境变量，不会写进 `config.toml`。
 
 ## 模型导入是怎么工作的
 

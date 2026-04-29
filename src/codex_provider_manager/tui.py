@@ -67,6 +67,39 @@ def _offer_set_provider_api_key(env_key: str) -> None:
         _set_provider_api_key(env_key)
 
 
+def _choose_model_for_provider(doc, provider_id: str, env_key: str) -> str | None:
+    result = fetch_models(doc, provider_id, api_key=os.environ.get(env_key))
+    if result.ok and result.models:
+        choices = [*result.models, tr("手动输入模型 ID", "Enter model ID manually"), tr("跳过", "Skip")]
+        selected = questionary.select(tr("选择默认模型", "Select default model"), choices=choices).ask()
+        if selected in (None, tr("跳过", "Skip")):
+            return None
+        if selected == tr("手动输入模型 ID", "Enter model ID manually"):
+            return _text(tr("模型 ID", "Model ID"))
+        return str(selected)
+    console.print(tr(f"[yellow]读取模型列表失败：[/yellow] {result.error}", f"[yellow]Failed to fetch model list:[/yellow] {result.error}"))
+    if _confirm(tr("是否手动输入模型 ID？", "Enter model ID manually?"), True):
+        return _text(tr("模型 ID", "Model ID"))
+    return None
+
+
+def _finish_new_provider_setup(doc, provider_id: str, env_key: str) -> str | None:
+    _offer_set_provider_api_key(env_key)
+    model = _choose_model_for_provider(doc, provider_id, env_key)
+    if not model:
+        return None
+    profile_name = add_profile(doc, profile_name=None, provider_id=provider_id, model=model, reasoning_effort="medium")
+    if _confirm(
+        tr(
+            f"是否将 {profile_name} 设为当前使用的 Profile（默认 Provider：{provider_id}）？",
+            f"Use {profile_name} as the current profile (default provider: {provider_id})?",
+        ),
+        True,
+    ):
+        set_root_profile(doc, profile_name)
+    return profile_name
+
+
 def _provider_table(doc) -> Table:
     table = Table(title=tr("Provider 列表", "Providers"))
     for column in ["ID", tr("名称", "Name"), "Base URL", tr("环境变量", "Env key"), "Wire API", "WebSocket"]:
@@ -230,9 +263,11 @@ def _providers_menu(config_path: Path) -> None:
             supports = _confirm(tr("是否支持 WebSocket？", "Supports WebSocket?"), False)
             if provider_id and name and base_url and env_key:
                 upsert_provider(doc, provider_id, name=name, base_url=base_url, env_key=env_key, supports_websockets=supports)
+                profile_name = _finish_new_provider_setup(doc, provider_id, env_key)
                 backup = _save_with_backup_choice(config_path, doc)
                 console.print(tr(f"已保存 Provider {provider_id}。备份：{_backup_label(backup)}", f"Saved provider {provider_id}. Backup: {_backup_label(backup)}"))
-                _offer_set_provider_api_key(env_key)
+                if profile_name:
+                    console.print(tr(f"已创建 Profile：{profile_name}", f"Created profile: {profile_name}"))
                 _pause()
         elif action == edit:
             provider_id = _normalize_choice(_choose_provider(doc, include_openai=False))

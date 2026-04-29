@@ -60,6 +60,31 @@ def _set_api_key_for_env_key(env_key: str, *, value: str | None = None, persist:
     console.print(set_env_var(env_key, api_key, persist=should_persist))
 
 
+def _prompt_model_for_provider(doc, provider_id: str, env_key: str) -> str | None:
+    result = fetch_models(doc, provider_id, api_key=os.environ.get(env_key))
+    if result.ok and result.models:
+        selected = questionary.select("Select default model", choices=[*result.models, "Enter model ID manually", "Skip"]).ask()
+        if selected in (None, "Skip"):
+            return None
+        if selected == "Enter model ID manually":
+            return _ask("Model ID")
+        return str(selected)
+    console.print(f"[yellow]Failed to fetch model list:[/yellow] {result.error}")
+    if _confirm("Enter model ID manually?", True):
+        return _ask("Model ID")
+    return None
+
+
+def _prompt_create_default_profile(doc, provider_id: str, env_key: str) -> str | None:
+    model = _prompt_model_for_provider(doc, provider_id, env_key)
+    if not model:
+        return None
+    profile_name = add_profile(doc, profile_name=None, provider_id=provider_id, model=model, reasoning_effort="medium")
+    if _confirm(f"Use {profile_name} as the current profile (default provider: {provider_id})?", True):
+        set_root_profile(doc, profile_name)
+    return profile_name
+
+
 def _print_provider_table(providers) -> None:
     table = Table(title="Codex Providers")
     for column in ["id", "name", "base_url", "env_key", "wire_api", "supports_websockets"]:
@@ -111,13 +136,18 @@ def cmd_add_provider(args) -> int:
     base_url = args.base_url or _ask("Base URL")
     env_key = args.env_key or _ask("Environment variable name")
     upsert_provider(doc, provider_id, name=name, base_url=base_url, env_key=env_key, supports_websockets=args.supports_websockets)
+    profile_name = None
+    should_prompt_key = args.prompt_api_key or args.api_key or (interactive and not args.dry_run and _confirm(f"Set API key for {env_key} now?", True))
+    if should_prompt_key and not args.dry_run:
+        _set_api_key_for_env_key(env_key, value=args.api_key, persist=args.persist_api_key, ask_persist=args.api_key is None)
+    if interactive and not args.dry_run:
+        profile_name = _prompt_create_default_profile(doc, provider_id, env_key)
     backup = save_config(config, doc, dry_run=args.dry_run, backup=args.backup)
     console.print(f"{'Would update' if args.dry_run else 'Updated'} provider [bold]{provider_id}[/bold].")
     if backup:
         console.print(f"Config backup: {backup}")
-    should_prompt_key = args.prompt_api_key or args.api_key or (interactive and not args.dry_run and _confirm(f"Set API key for {env_key} now?", True))
-    if should_prompt_key and not args.dry_run:
-        _set_api_key_for_env_key(env_key, value=args.api_key, persist=args.persist_api_key, ask_persist=args.api_key is None)
+    if profile_name:
+        console.print(f"Created profile: {profile_name}")
     return 0
 
 

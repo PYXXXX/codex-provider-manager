@@ -111,7 +111,7 @@ cpm remove-provider codexlb
 ```
 
 The built-in official provider is always shown as `openai`, but the tool does not write `[model_providers.openai]` because Codex owns that provider.
-When adding or editing a third-party provider in the TUI, you can set the real API key in the same flow. The key is written only to the environment, never to `config.toml`.
+When adding a third-party provider in the TUI, the flow can also set the real API key, fetch `/v1/models`, create a profile for the selected model, and set it as the current profile. The key is written only to the environment, never to `config.toml`.
 
 ## Model Import
 
