@@ -240,7 +240,7 @@ def _providers_menu(config_path: Path) -> None:
         console.clear()
         console.print(_provider_table(doc))
         view = tr("查看 Provider 详情", "View provider detail")
-        add = tr("新增 Provider", "Add provider")
+        add = tr("新增 Provider 向导", "Add provider wizard")
         edit = tr("编辑 Provider", "Edit provider")
         remove = tr("删除 Provider", "Remove provider")
         back = tr("返回", "Back")

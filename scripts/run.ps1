@@ -27,6 +27,28 @@ function Test-CpmVenv {
     return ($LASTEXITCODE -eq 0)
 }
 
+function Test-CpmEditableInstall {
+    if (-not (Test-CpmVenv)) { return $false }
+    $Expected = (Resolve-Path (Join-Path $Root "src\codex_provider_manager")).Path
+    $Code = "from pathlib import Path; import codex_provider_manager; actual = Path(codex_provider_manager.__file__).resolve().parent; expected = Path(r'$Expected').resolve(); raise SystemExit(0 if actual == expected else 1)"
+    & $Python -c $Code *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Test-InstallFresh {
+    if (-not (Test-Path $Stamp)) { return $false }
+    $StampTime = (Get-Item -LiteralPath $Stamp).LastWriteTimeUtc
+    $Sources = @(
+        (Join-Path $Root "pyproject.toml")
+    ) + (Get-ChildItem -Path (Join-Path $Root "src") -Recurse -File -Include *.py | ForEach-Object { $_.FullName })
+    foreach ($Source in $Sources) {
+        if ((Get-Item -LiteralPath $Source).LastWriteTimeUtc -gt $StampTime) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function New-CpmVenv {
     $script:NeedsInstall = $true
     if (Test-Path $Venv) {
@@ -51,7 +73,7 @@ try {
         New-CpmVenv
     }
 
-    if ($NeedsInstall -or -not (Test-Path $Stamp)) {
+    if ($NeedsInstall -or -not (Test-CpmEditableInstall) -or -not (Test-InstallFresh)) {
         & $Python -m pip install -e "$Root"
         if ($LASTEXITCODE -ne 0) { Fail-With-Pause "pip install failed" }
         New-Item -ItemType File -Path $Stamp -Force | Out-Null

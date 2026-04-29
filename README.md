@@ -68,6 +68,7 @@ chmod +x scripts/run.sh
 ```
 
 Running the script with no arguments opens the TUI. Arguments are passed through to the CLI.
+The scripts automatically refresh the local editable install when source files change, so pulling a newer version and running the script is enough.
 
 ## Install
 
