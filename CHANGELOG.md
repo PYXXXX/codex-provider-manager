@@ -8,3 +8,4 @@
 - Add session provider scan, selected-session migration, undo JSON, and rollback.
 - Keep session `cwd`/workspace, title, id, timestamp, model, and message history unchanged during migration.
 - Make config and session directory backups opt-in.
+- Allow setting provider API keys from provider add/edit flows without writing secrets to `config.toml`.

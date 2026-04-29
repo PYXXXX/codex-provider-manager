@@ -105,11 +105,13 @@ The session migration flow loads sessions first, lets you select the exact sessi
 ```bash
 cpm list-providers
 cpm add-provider --id codexlb --name codex-lb --base-url https://aiapi.bilirec.com/v1 --env-key CODEX_LB_API_KEY
+cpm add-provider --id codexlb --name codex-lb --base-url https://aiapi.bilirec.com/v1 --env-key CODEX_LB_API_KEY --prompt-api-key --persist-api-key
 cpm edit-provider codexlb
 cpm remove-provider codexlb
 ```
 
 The built-in official provider is always shown as `openai`, but the tool does not write `[model_providers.openai]` because Codex owns that provider.
+When adding or editing a third-party provider in the TUI, you can set the real API key in the same flow. The key is written only to the environment, never to `config.toml`.
 
 ## Model Import
 
@@ -170,7 +172,7 @@ cpm set-env --provider codexlb
 cpm check-official-auth
 ```
 
-On Windows, persistent env setup uses `setx` when requested. On macOS/Linux, the tool prints an `export` command instead of editing shell startup files.
+On Windows, persistent env setup uses `setx` when requested. On macOS/Linux, the tool sets the key for the current process and tells you which variable to persist manually without printing the secret.
 
 ## Development
 

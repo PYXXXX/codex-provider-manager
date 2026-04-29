@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 from pathlib import Path
 
 import questionary
@@ -11,7 +12,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from .config import load_config, save_config, set_root_profile
-from .env import check_env
+from .env import check_env, set_env_var
 from .i18n import tr
 from .models import add_profile, fetch_models, import_models, list_profiles
 from .providers import get_provider, list_providers, provider_to_dict, referencing_profiles, remove_provider, upsert_provider
@@ -41,6 +42,29 @@ def _backup_label(backup: Path | None) -> str:
 def _text(message: str, default: str = "") -> str | None:
     value = questionary.text(message, default=default).ask()
     return value.strip() if value is not None else None
+
+
+def _set_provider_api_key(env_key: str) -> None:
+    if not env_key:
+        console.print(tr("[yellow]该 Provider 没有 env_key。[/yellow]", "[yellow]This provider has no env_key.[/yellow]"))
+        return
+    value = questionary.password(tr(f"输入 {env_key} 的 API key", f"API key for {env_key}")).ask()
+    if not value:
+        return
+    persist_default = platform.system() == "Windows"
+    persist = _confirm(
+        tr(
+            "是否保存到用户环境变量？Windows 上建议保存，保存后需要重启 Codex App。",
+            "Persist to the user environment? Recommended on Windows; restart Codex App afterward.",
+        ),
+        persist_default,
+    )
+    console.print(set_env_var(env_key, value, persist=persist))
+
+
+def _offer_set_provider_api_key(env_key: str) -> None:
+    if env_key and _confirm(tr(f"是否现在设置 {env_key} 的 API key？", f"Set API key for {env_key} now?"), True):
+        _set_provider_api_key(env_key)
 
 
 def _provider_table(doc) -> Table:
@@ -208,11 +232,13 @@ def _providers_menu(config_path: Path) -> None:
                 upsert_provider(doc, provider_id, name=name, base_url=base_url, env_key=env_key, supports_websockets=supports)
                 backup = _save_with_backup_choice(config_path, doc)
                 console.print(tr(f"已保存 Provider {provider_id}。备份：{_backup_label(backup)}", f"Saved provider {provider_id}. Backup: {_backup_label(backup)}"))
+                _offer_set_provider_api_key(env_key)
                 _pause()
         elif action == edit:
             provider_id = _normalize_choice(_choose_provider(doc, include_openai=False))
             provider = get_provider(doc, provider_id) if provider_id else None
             if provider:
+                set_key = tr("设置 API Key（只写环境变量）", "Set API key (environment only)")
                 fields = questionary.checkbox(
                     tr("选择要修改的字段", "Fields to edit"),
                     choices=[
@@ -220,6 +246,7 @@ def _providers_menu(config_path: Path) -> None:
                         f"base_url: {provider.base_url or ''}",
                         f"env_key: {provider.env_key or ''}",
                         f"supports_websockets: {str(bool(provider.supports_websockets)).lower()}",
+                        set_key,
                         back,
                     ],
                 ).ask() or []
@@ -237,11 +264,17 @@ def _providers_menu(config_path: Path) -> None:
                     env_key = _text(tr("环境变量名", "Environment variable name"), env_key) or env_key
                 if any(field.startswith("supports_websockets:") for field in fields):
                     supports = _confirm(tr("是否支持 WebSocket？", "Supports WebSocket?"), supports)
-                if name and base_url and env_key:
+                config_changed = any(
+                    any(field.startswith(prefix) for field in fields)
+                    for prefix in ("name:", "base_url:", "env_key:", "supports_websockets:")
+                )
+                if config_changed and name and base_url and env_key:
                     upsert_provider(doc, provider_id, name=name, base_url=base_url, env_key=env_key, supports_websockets=supports)
                     backup = _save_with_backup_choice(config_path, doc)
                     console.print(tr(f"已保存 Provider {provider_id}。备份：{_backup_label(backup)}", f"Saved provider {provider_id}. Backup: {_backup_label(backup)}"))
-                    _pause()
+                if set_key in fields:
+                    _set_provider_api_key(env_key)
+                _pause()
         elif action == remove:
             provider_id = _normalize_choice(_choose_provider(doc, include_openai=False))
             if not provider_id:

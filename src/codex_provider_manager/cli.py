@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -42,6 +43,21 @@ def _ask(text: str, default: str | None = None) -> str:
 def _confirm(text: str, default: bool = False) -> bool:
     value = questionary.confirm(text, default=default).ask()
     return bool(value)
+
+
+def _set_api_key_for_env_key(env_key: str, *, value: str | None = None, persist: bool | None = None, ask_persist: bool = True) -> None:
+    api_key = value or questionary.password(f"API key for {env_key}").ask()
+    if not api_key:
+        return
+    should_persist = persist
+    if should_persist is None and ask_persist:
+        should_persist = _confirm(
+            "Persist to the user environment? Recommended on Windows; restart Codex App afterward.",
+            platform.system() == "Windows",
+        )
+    if should_persist is None:
+        should_persist = False
+    console.print(set_env_var(env_key, api_key, persist=should_persist))
 
 
 def _print_provider_table(providers) -> None:
@@ -86,6 +102,7 @@ def cmd_list_providers(args) -> int:
 
 def cmd_add_provider(args) -> int:
     config, _, doc = _load(args)
+    interactive = not all([args.id, args.name, args.base_url, args.env_key])
     provider_id = args.id or _ask("Provider id")
     exists = get_provider(doc, provider_id) is not None and provider_id != "openai"
     if exists and not (args.yes or _confirm(f"Provider {provider_id} exists. Update it?", False)):
@@ -98,6 +115,9 @@ def cmd_add_provider(args) -> int:
     console.print(f"{'Would update' if args.dry_run else 'Updated'} provider [bold]{provider_id}[/bold].")
     if backup:
         console.print(f"Config backup: {backup}")
+    should_prompt_key = args.prompt_api_key or args.api_key or (interactive and not args.dry_run and _confirm(f"Set API key for {env_key} now?", True))
+    if should_prompt_key and not args.dry_run:
+        _set_api_key_for_env_key(env_key, value=args.api_key, persist=args.persist_api_key, ask_persist=args.api_key is None)
     return 0
 
 
@@ -117,6 +137,8 @@ def cmd_edit_provider(args) -> int:
     console.print(f"{'Would update' if args.dry_run else 'Updated'} provider [bold]{provider_id}[/bold].")
     if backup:
         console.print(f"Config backup: {backup}")
+    if (args.prompt_api_key or args.api_key) and not args.dry_run:
+        _set_api_key_for_env_key(env_key, value=args.api_key, persist=args.persist_api_key, ask_persist=args.api_key is None)
     return 0
 
 
@@ -354,6 +376,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url")
     p.add_argument("--env-key")
     p.add_argument("--supports-websockets", action="store_true")
+    p.add_argument("--api-key", help="Set the provider API key into the environment; never written to config.toml")
+    p.add_argument("--prompt-api-key", action="store_true", help="Prompt for the provider API key after saving")
+    p.add_argument("--persist-api-key", action=argparse.BooleanOptionalAction, default=None, help="Persist API key to the user environment when setting it")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--backup", action="store_true", help="Create config.toml backup before writing")
     p.add_argument("-y", "--yes", action="store_true")
@@ -365,6 +390,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base-url")
     p.add_argument("--env-key")
     p.add_argument("--supports-websockets", action=argparse.BooleanOptionalAction, default=None)
+    p.add_argument("--api-key", help="Set the provider API key into the environment; never written to config.toml")
+    p.add_argument("--prompt-api-key", action="store_true", help="Prompt for the provider API key after saving")
+    p.add_argument("--persist-api-key", action=argparse.BooleanOptionalAction, default=None, help="Persist API key to the user environment when setting it")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--backup", action="store_true", help="Create config.toml backup before writing")
     p.set_defaults(func=cmd_edit_provider)

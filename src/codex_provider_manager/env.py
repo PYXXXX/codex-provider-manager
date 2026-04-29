@@ -26,5 +26,4 @@ def set_env_var(name: str, value: str, *, persist: bool = False) -> str:
     if platform.system() == "Windows":
         subprocess.run(["setx", name, value], check=True, capture_output=True, text=True)
         return f"Persisted {name} for the Windows user environment. Reopen terminals to use it."
-    escaped = value.replace("'", "'\"'\"'")
-    return f"Add this to your shell profile:\nexport {name}='{escaped}'"
+    return f"Set {name} for the current process. To persist it, add an export for {name} to your shell profile. The value is hidden."
