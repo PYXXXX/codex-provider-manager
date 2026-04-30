@@ -100,6 +100,7 @@ Main areas:
 - Environment checks
 
 The session migration flow loads sessions first, lets you select the exact sessions to migrate, then asks for the target provider and confirmation. There is also a "migrate to current provider" action that preselects sessions whose first-line provider differs from the active profile's provider, while still letting you uncheck any session before writing.
+Session deletion in the TUI shows each selected session's workspace first. It summarizes common outputs such as documents, code, data, images, presentations, and archives, then detects workspace skills with `SKILL.md`. Missing skills can be installed to `~/.codex/skills`. Deleting a session removes only the selected `.jsonl` session files; workspace files are not deleted.
 
 ## Provider Commands
 
@@ -164,6 +165,8 @@ cpm rollback-sessions --undo ~/.codex/session-migration-undo-YYYYMMDD-HHMMSS.jso
 Migration changes only the first-line provider field. It does not change the model, session id, timestamp, workspace/cwd, title, or later messages.
 
 Formal migration writes a lightweight undo JSON. A full sessions backup is created only when you pass `--backup` or choose it in the TUI.
+
+The TUI also supports deleting selected session files. Before deletion it shows the related workspace outputs and workspace skills, and it can optionally back up the selected session files.
 
 ## Environment Commands
 

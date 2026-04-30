@@ -1,7 +1,19 @@
 import json
 from pathlib import Path
 
-from codex_provider_manager.sessions import migrate_selected_session_files, migrate_sessions, rollback_sessions, scan_sessions, summarize_by_provider
+from codex_provider_manager.sessions import (
+    backup_session_files,
+    delete_session_files,
+    install_workspace_skill,
+    migrate_selected_session_files,
+    migrate_sessions,
+    rollback_sessions,
+    scan_sessions,
+    scan_workspace_outputs,
+    scan_workspace_skills,
+    summarize_by_provider,
+    summarize_outputs_by_category,
+)
 
 
 def _session(path: Path, provider: str, model: str = "gpt-5.4") -> None:
@@ -215,3 +227,53 @@ def test_migrate_selected_session_files_updates_only_chosen_files(tmp_path: Path
     assert chosen_first["payload"]["model_provider"] == "codexlb"
     assert chosen_first["payload"]["cwd"] == "D:\\Agent\\demo"
     assert other_first["payload"]["model_provider"] == "onetoken"
+
+
+def test_scan_workspace_outputs_groups_common_artifacts(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "notes").mkdir(parents=True)
+    (workspace / "notes" / "summary.md").write_text("# Summary", encoding="utf-8")
+    (workspace / "src").mkdir()
+    (workspace / "src" / "app.py").write_text("print('hi')", encoding="utf-8")
+    (workspace / "node_modules").mkdir()
+    (workspace / "node_modules" / "ignored.js").write_text("ignored", encoding="utf-8")
+
+    outputs = scan_workspace_outputs(workspace)
+    summary = summarize_outputs_by_category(outputs)
+
+    assert summary["文档"] == 1
+    assert summary["代码"] == 1
+    assert all("node_modules" not in str(output.path) for output in outputs)
+
+
+def test_scan_and_install_workspace_skills(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    skill_dir = workspace / "skills" / "demo-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("# Demo", encoding="utf-8")
+    global_skills = tmp_path / ".codex" / "skills"
+
+    skills = scan_workspace_skills(workspace, global_skills_dir=global_skills)
+    assert len(skills) == 1
+    assert skills[0].installed is False
+
+    installed = install_workspace_skill(skills[0])
+    assert installed == global_skills / "demo-skill"
+    assert (installed / "SKILL.md").exists()
+
+    rescanned = scan_workspace_skills(workspace, global_skills_dir=global_skills)
+    assert rescanned[0].installed is True
+
+
+def test_delete_session_files_can_backup_selected_files(tmp_path: Path) -> None:
+    sessions = tmp_path / ".codex" / "sessions"
+    file_path = sessions / "2026" / "04" / "29" / "a.jsonl"
+    _session(file_path, "huaibao")
+
+    backup = backup_session_files(sessions, {file_path})
+    result = delete_session_files({file_path})
+
+    assert backup is not None
+    assert (backup / "2026" / "04" / "29" / "a.jsonl").exists()
+    assert result.deleted == 1
+    assert not file_path.exists()

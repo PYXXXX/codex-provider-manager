@@ -16,7 +16,18 @@ from .env import check_env, set_env_var
 from .i18n import tr
 from .models import add_profile, fetch_models, import_models, list_profiles
 from .providers import get_provider, list_providers, provider_to_dict, referencing_profiles, remove_provider, upsert_provider
-from .sessions import migrate_selected_session_files, rollback_sessions, scan_sessions, summarize_by_provider
+from .sessions import (
+    backup_session_files,
+    delete_session_files,
+    install_workspace_skill,
+    migrate_selected_session_files,
+    rollback_sessions,
+    scan_sessions,
+    scan_workspace_outputs,
+    scan_workspace_skills,
+    summarize_by_provider,
+    summarize_outputs_by_category,
+)
 from .utils import env_key_for_provider_id
 
 
@@ -445,6 +456,117 @@ def _paths_not_on_provider(infos, provider_id: str) -> set[Path]:
     return {info.path for info in infos if not info.warning and info.model_provider and info.model_provider != provider_id}
 
 
+def _workspace_output_table(workspace: Path) -> Table:
+    outputs = scan_workspace_outputs(workspace)
+    summary = summarize_outputs_by_category(outputs)
+    title = tr(f"工作区产出：{workspace}", f"Workspace outputs: {workspace}")
+    table = Table(title=title)
+    table.add_column(tr("类型", "Type"))
+    table.add_column(tr("数量", "Count"), justify="right")
+    table.add_column(tr("示例", "Examples"))
+    for category, count in summary.items():
+        examples = [str(output.path.relative_to(workspace)) for output in outputs if output.category == category][:5]
+        table.add_row(category, str(count), ", ".join(examples))
+    if not summary:
+        table.add_row(tr("<无>", "<none>"), "0", "")
+    return table
+
+
+def _workspace_skill_table(workspace: Path) -> Table:
+    skills = scan_workspace_skills(workspace)
+    table = Table(title=tr(f"工作区 Skills：{workspace}", f"Workspace skills: {workspace}"))
+    table.add_column("Skill")
+    table.add_column(tr("全局状态", "Global status"))
+    table.add_column(tr("路径", "Path"))
+    for skill in skills:
+        table.add_row(skill.name, tr("已安装", "installed") if skill.installed else tr("未安装", "not installed"), str(skill.path))
+    if not skills:
+        table.add_row(tr("<无>", "<none>"), "", "")
+    return table
+
+
+def _install_missing_workspace_skills(workspaces: list[Path]) -> None:
+    missing = []
+    seen: set[Path] = set()
+    for workspace in workspaces:
+        for skill in scan_workspace_skills(workspace):
+            if not skill.installed and skill.path not in seen:
+                missing.append(skill)
+                seen.add(skill.path)
+    if not missing:
+        return
+    choices = [
+        Choice(
+            title=f"{skill.name} -> {skill.global_path}",
+            value=skill,
+            checked=True,
+        )
+        for skill in missing
+    ]
+    selected = questionary.checkbox(tr("选择要安装到全局的 Skill", "Select skills to install globally"), choices=choices).ask() or []
+    for skill in selected:
+        target = install_workspace_skill(skill)
+        console.print(tr(f"已安装 Skill：{skill.name} -> {target}", f"Installed skill: {skill.name} -> {target}"))
+
+
+def _run_session_delete_flow(sessions_dir: Path, infos) -> None:
+    valid_infos = [info for info in infos if not info.warning]
+    if not valid_infos:
+        console.print(tr("[yellow]没有可删除的 Session。[/yellow]", "[yellow]No deletable sessions found.[/yellow]"))
+        _pause()
+        return
+    back = tr("返回", "Back")
+    choices = [
+        Choice(title=_session_choice_title(info), value=info.path)
+        for info in valid_infos
+    ]
+    choices.append(Choice(title=back, value="__back__"))
+    selected_paths = set(questionary.checkbox(tr("选择要删除的 Session", "Select sessions to delete"), choices=choices).ask() or [])
+    if "__back__" in selected_paths:
+        return
+    if not selected_paths:
+        console.print(tr("[yellow]没有选择任何 Session。[/yellow]", "[yellow]No sessions selected.[/yellow]"))
+        _pause()
+        return
+
+    selected_infos = [info for info in valid_infos if info.path in selected_paths]
+    preview = Table(title=tr("删除预览（仅删除 Session 文件）", "Delete preview (session files only)"))
+    preview.add_column(tr("标题", "Title"))
+    preview.add_column("Provider")
+    preview.add_column(tr("工作区", "Workspace"))
+    preview.add_column(tr("Session 文件", "Session file"))
+    for info in selected_infos:
+        preview.add_row(info.title or info.path.stem, info.model_provider or "", info.cwd or "", str(info.path))
+    console.print(preview)
+
+    workspaces = []
+    seen_workspaces: set[Path] = set()
+    for info in selected_infos:
+        if not info.cwd:
+            continue
+        workspace = Path(info.cwd).expanduser()
+        if workspace not in seen_workspaces:
+            workspaces.append(workspace)
+            seen_workspaces.add(workspace)
+    for workspace in workspaces:
+        console.print(_workspace_output_table(workspace))
+        console.print(_workspace_skill_table(workspace))
+    _install_missing_workspace_skills(workspaces)
+
+    backup_dir = None
+    if _confirm(tr("删除前是否备份选中的 Session 文件？", "Back up selected session files before deleting?"), False):
+        backup_dir = backup_session_files(sessions_dir, selected_paths)
+        if backup_dir:
+            console.print(tr(f"备份目录：{backup_dir}", f"Backup directory: {backup_dir}"))
+    if not _confirm(tr(f"确认删除 {len(selected_paths)} 个 Session 文件？工作区文件不会被删除。", f"Delete {len(selected_paths)} session files? Workspace files will not be deleted."), False):
+        return
+    result = delete_session_files(selected_paths)
+    console.print(tr(f"已删除 {result.deleted} 个；跳过 {result.skipped} 个。", f"Deleted {result.deleted}; skipped {result.skipped}."))
+    for warning in result.warnings:
+        console.print(tr(f"[yellow]警告：[/yellow] {warning}", f"[yellow]Warning:[/yellow] {warning}"))
+    _pause()
+
+
 def _run_session_migration_flow(
     sessions_dir: Path,
     valid_infos,
@@ -520,9 +642,10 @@ def _sessions_menu(config_path: Path, sessions_dir: Path) -> None:
         view = tr("查看 Session 文件", "View session files")
         migrate = tr("迁移选中的 Session", "Migrate selected sessions")
         migrate_current = tr("迁移到当前 Provider", "Migrate to current provider")
+        delete = tr("删除 Session", "Delete sessions")
         rollback = tr("从 undo JSON 回滚", "Rollback from undo JSON")
         back = tr("返回", "Back")
-        action = questionary.select(tr("Session 管理", "Session Management"), choices=[view, migrate, migrate_current, rollback, back]).ask()
+        action = questionary.select(tr("Session 管理", "Session Management"), choices=[view, migrate, migrate_current, delete, rollback, back]).ask()
         if action in (None, back):
             return
         if action == view:
@@ -549,6 +672,8 @@ def _sessions_menu(config_path: Path, sessions_dir: Path) -> None:
                 continue
             console.print(tr(f"当前 Provider：{current_provider}。已自动勾选不属于它的 Session。", f"Current provider: {current_provider}. Sessions not using it are preselected."))
             _run_session_migration_flow(sessions_dir, valid_infos, target_providers, preset_target=current_provider, preselected_paths=preselected)
+        elif action == delete:
+            _run_session_delete_flow(sessions_dir, infos)
         elif action == rollback:
             undo = _text(tr("Undo JSON 路径", "Undo JSON path"))
             if undo:

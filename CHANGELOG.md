@@ -11,3 +11,4 @@
 - Allow setting provider API keys from provider add/edit flows without writing secrets to `config.toml`.
 - Guide new provider setup through model selection, profile creation, and optional current-profile switching.
 - Generate provider API-key environment variable names automatically during provider creation.
+- Add TUI session deletion with workspace output review and workspace skill installation support.

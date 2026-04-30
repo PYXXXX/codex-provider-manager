@@ -9,6 +9,32 @@ from pathlib import Path
 from .backup import backup_sessions_dir, timestamp
 
 
+OUTPUT_EXTENSIONS = {
+    "文档": {".md", ".txt", ".docx", ".pdf", ".rtf"},
+    "代码": {".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".cs", ".php", ".rb", ".swift", ".kt", ".sh", ".ps1", ".html", ".css"},
+    "数据": {".json", ".jsonl", ".csv", ".tsv", ".xlsx", ".xls", ".sqlite", ".db", ".parquet", ".yaml", ".yml", ".toml", ".xml"},
+    "图片": {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"},
+    "演示": {".pptx", ".ppt", ".key"},
+    "压缩包": {".zip", ".tar", ".gz", ".7z", ".rar"},
+}
+
+IGNORED_WORKSPACE_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "dist",
+    "build",
+}
+
+
 @dataclass
 class SessionInfo:
     path: Path
@@ -27,6 +53,29 @@ class MigrationResult:
     skipped: int
     undo_path: Path | None
     backup_path: Path | None
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
+class WorkspaceOutput:
+    path: Path
+    category: str
+    size: int
+    modified: str
+
+
+@dataclass(frozen=True)
+class WorkspaceSkill:
+    name: str
+    path: Path
+    global_path: Path
+    installed: bool
+
+
+@dataclass(frozen=True)
+class DeleteSessionsResult:
+    deleted: int
+    skipped: int
     warnings: list[str]
 
 
@@ -343,6 +392,130 @@ def rollback_sessions(undo_path: Path, *, dry_run: bool = False) -> MigrationRes
             path.write_text("".join(lines), encoding="utf-8")
         changed += 1
     return MigrationResult(changed=changed, skipped=skipped, undo_path=undo_path, backup_path=None, warnings=warnings)
+
+
+def _should_ignore_dir(path: Path) -> bool:
+    return path.name in IGNORED_WORKSPACE_DIRS or path.name.startswith(".git")
+
+
+def _has_ignored_part(path: Path, root: Path) -> bool:
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        return False
+    return any(part in IGNORED_WORKSPACE_DIRS or part.startswith(".git") for part in parts)
+
+
+def _output_category(path: Path) -> str | None:
+    suffix = path.suffix.lower()
+    for category, suffixes in OUTPUT_EXTENSIONS.items():
+        if suffix in suffixes:
+            return category
+    return None
+
+
+def scan_workspace_outputs(workspace: Path, *, max_files: int = 200) -> list[WorkspaceOutput]:
+    if not workspace.exists() or not workspace.is_dir():
+        return []
+    outputs: list[WorkspaceOutput] = []
+    for path in workspace.rglob("*"):
+        if _has_ignored_part(path, workspace):
+            continue
+        if not path.is_file():
+            continue
+        category = _output_category(path)
+        if not category:
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        outputs.append(
+            WorkspaceOutput(
+                path=path,
+                category=category,
+                size=stat.st_size,
+                modified=datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="minutes"),
+            )
+        )
+    outputs.sort(key=lambda item: item.path.stat().st_mtime if item.path.exists() else 0, reverse=True)
+    return outputs[:max_files]
+
+
+def summarize_outputs_by_category(outputs: list[WorkspaceOutput]) -> dict[str, int]:
+    summary: dict[str, int] = {}
+    for output in outputs:
+        summary[output.category] = summary.get(output.category, 0) + 1
+    return dict(sorted(summary.items()))
+
+
+def scan_workspace_skills(workspace: Path, *, global_skills_dir: Path | None = None) -> list[WorkspaceSkill]:
+    if global_skills_dir is None:
+        global_skills_dir = Path.home() / ".codex" / "skills"
+    if not workspace.exists() or not workspace.is_dir():
+        return []
+    skills: list[WorkspaceSkill] = []
+    for skill_file in workspace.rglob("SKILL.md"):
+        if _has_ignored_part(skill_file, workspace):
+            continue
+        skill_dir = skill_file.parent
+        global_path = global_skills_dir / skill_dir.name
+        skills.append(WorkspaceSkill(name=skill_dir.name, path=skill_dir, global_path=global_path, installed=global_path.exists()))
+    return sorted(skills, key=lambda item: item.name.lower())
+
+
+def install_workspace_skill(skill: WorkspaceSkill, *, overwrite: bool = False) -> Path:
+    if skill.global_path.exists():
+        if not overwrite:
+            return skill.global_path
+        if skill.global_path.is_dir():
+            shutil.rmtree(skill.global_path)
+        else:
+            skill.global_path.unlink()
+    skill.global_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(skill.path, skill.global_path)
+    return skill.global_path
+
+
+def backup_session_files(sessions_dir: Path, paths: list[Path] | set[Path]) -> Path | None:
+    selected = [Path(path) for path in paths if Path(path).exists()]
+    if not selected:
+        return None
+    backup_dir = sessions_dir.parent / f"sessions-delete-backup-{timestamp()}"
+    for path in selected:
+        try:
+            relative = path.relative_to(sessions_dir)
+        except ValueError:
+            relative = Path(path.name)
+        target = backup_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    return backup_dir
+
+
+def delete_session_files(paths: list[Path] | set[Path], *, dry_run: bool = False) -> DeleteSessionsResult:
+    deleted = 0
+    skipped = 0
+    warnings: list[str] = []
+    for raw_path in paths:
+        path = Path(raw_path)
+        if path.suffix != ".jsonl":
+            skipped += 1
+            warnings.append(f"{path}: not a .jsonl file")
+            continue
+        if not path.exists():
+            skipped += 1
+            warnings.append(f"{path}: file not found")
+            continue
+        if not dry_run:
+            try:
+                path.unlink()
+            except OSError as exc:
+                skipped += 1
+                warnings.append(f"{path}: delete failed: {exc}")
+                continue
+        deleted += 1
+    return DeleteSessionsResult(deleted=deleted, skipped=skipped, warnings=warnings)
 
 
 def copy_sessions_for_tests(src: Path, dst: Path) -> None:
